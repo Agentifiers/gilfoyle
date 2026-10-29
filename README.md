@@ -109,3 +109,7 @@ Limits: the guard covers the browser only. The agent's shell and WebFetch could 
 ```bash
 cd bridge && bun install && bun test && bunx tsc --noEmit
 ```
+
+## License
+
+[MIT](LICENSE)
