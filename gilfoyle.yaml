@@ -1,0 +1,67 @@
+# Gilfoyle's one config file: who's on the team, what it can touch, what it watches,
+# and what it does on a schedule. Change it, rebuild the image, redeploy.
+# ${VAR} in `tools` is read from the container environment (the Kubernetes secret).
+
+name: Example Co
+owner: ada@example.com          # hears about refusals
+timezone: America/Los_Angeles   # for crons, and for people with no Slack timezone
+holidays: [2026-11-26, 2026-12-25, 2027-01-01]
+
+# Which Claude to run, and where. Credentials come from the container env:
+# bedrock uses the pod's AWS role; anthropic uses ANTHROPIC_API_KEY (or
+# ANTHROPIC_AUTH_TOKEN for a gateway that wants a bearer token).
+model:
+  provider: bedrock
+  name: global.anthropic.claude-opus-5-5   # us./eu./au./jp. for a regional profile
+  region: us-east-1
+  # provider: anthropic
+  # name: claude-opus-5-5
+  # base_url: http://localhost:8317       # optional: an Anthropic Messages-format gateway
+
+github:
+  org: example-org
+  repos:                        # cloned into every world; setup runs on each claim
+    - { name: api, setup: uv sync --quiet }
+    - { name: web, setup: CI=true pnpm install --silent --frozen-lockfile }
+worlds: 3                       # parallel working copies
+browser: true                   # headless Chromium for the agent; false turns it off
+
+members:
+  - { email: ada@example.com, name: Ada, engineer: true, escalation: true }
+  - { email: grace@example.com, name: Grace, engineer: true }
+  - { email: sam@example.com, name: Sam }           # not an engineer: read-only answers
+
+# Bots whose messages Gilfoyle reads. Every other bot is ignored.
+bots:
+  B0123REMIND: Slackbot /remind
+
+# Alert channels. source: cloudwatch | datadog | incidentio, or a custom
+# { pattern, firing, resolved } regex. posters: the bot IDs that post alerts there.
+alerts:
+  C0123ALERTS: { env: prod, source: datadog, posters: [B0123DATADOG], ignore: ["*-canary"] }
+
+# Channels where a listed bot's top-level posts wake Gilfoyle, e.g. a support feed.
+tickets: {}
+
+# MCP servers Gilfoyle can use. The ticket tracker goes here.
+tools:
+  jira:
+    type: http
+    url: https://mcp.atlassian.com/v2/mcp
+    headers: { Authorization: "Basic ${JIRA_AUTH}" }
+  # linear:
+  #   type: http
+  #   url: https://mcp.linear.app/mcp
+  #   headers: { Authorization: "Bearer ${LINEAR_API_KEY}" }
+
+# Scheduled jobs, in `timezone`. Gilfoyle gets the prompt and works in the channel.
+crons:
+  - name: stale-prs
+    schedule: "0 9 * * MON-FRI"
+    channel: C0123REVIEW
+    prompt: List open PRs in our repos with no review for 2+ business days. One line each, oldest first. Post nothing if there are none.
+
+# Anything else Gilfoyle should know. Appended to CLAUDE.md.
+notes: |
+  - Tickets are in Jira, project `ENG`. Put the issue key in branch names and commits, e.g. `ENG-42-fix-login`.
+  - Post review requests in <#C0123REVIEW>.

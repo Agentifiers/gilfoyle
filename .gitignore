@@ -1,0 +1,7 @@
+bridge/node_modules/
+.DS_Store
+*.log
+# Secrets and per-machine config
+.env
+*.env
+*.local.yaml

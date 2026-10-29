@@ -1,0 +1,3 @@
+# This repo decides who can direct the bot and what it may do, so changes need
+# an owner's review. Replace with your org's owners.
+* @OWNER

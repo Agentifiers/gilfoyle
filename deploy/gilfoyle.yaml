@@ -1,0 +1,53 @@
+# Build the image, create its secret, give its service account Bedrock access
+# (skip the IAM steps for model.provider: anthropic),
+# then apply this file with IMAGE replaced:
+#
+#   docker build -t IMAGE .
+#   kubectl create secret generic gilfoyle \
+#     --from-literal=SLACK_BOT_TOKEN=xoxb-... --from-literal=SLACK_APP_TOKEN=xapp-... \
+#     --from-literal=GH_TOKEN=... \
+#     --from-literal=JIRA_AUTH=...   # whatever gilfoyle.yaml's tools reference
+#     # --from-literal=ANTHROPIC_API_KEY=...   # only for model.provider: anthropic
+#   aws iam create-role --role-name gilfoyle --assume-role-policy-document \
+#     '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"pods.eks.amazonaws.com"},"Action":["sts:AssumeRole","sts:TagSession"]}]}'
+#   aws iam put-role-policy --role-name gilfoyle --policy-name bedrock \
+#     --policy-document file://deploy/bedrock-policy.json
+#   aws eks create-pod-identity-association --cluster-name CLUSTER --namespace default \
+#     --service-account gilfoyle --role-arn arn:aws:iam::ACCOUNT:role/gilfoyle
+#   sed 's#IMAGE#registry/gilfoyle:1#' deploy/gilfoyle.yaml | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gilfoyle
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: gilfoyle
+spec:
+  replicas: 1 # never more: Slack splits events across connections, and state is on the volume
+  serviceName: gilfoyle
+  selector:
+    matchLabels: { app: gilfoyle }
+  template:
+    metadata:
+      labels: { app: gilfoyle }
+    spec:
+      serviceAccountName: gilfoyle
+      securityContext: { fsGroup: 1000 }
+      containers:
+        - name: gilfoyle
+          image: IMAGE
+          envFrom:
+            - secretRef: { name: gilfoyle }
+          resources:
+            requests: { cpu: "1", memory: 4Gi }
+            limits: { memory: 8Gi }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+  volumeClaimTemplates:
+    - metadata: { name: data }
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests: { storage: 50Gi }

@@ -1,0 +1,7 @@
+.git
+.amp
+**/node_modules
+docs
+.env
+*.env
+*.local.yaml
