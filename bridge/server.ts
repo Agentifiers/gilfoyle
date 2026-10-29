@@ -305,6 +305,10 @@ const slackTools = [
       return text('updated')
     }),
     slackTool('close_code_channel', 'Archive a code channel when its work is done or abandoned. summary_ts is your wrap-up message in the channel. Release its world first.', { chat_id: s, summary_ts: s }, async a => {
+      // An archived channel refuses edits, so the turn's thinking steps get their final title first.
+      const session = sessions.get(a.chat_id)
+      await session?.turn?.end(true)
+      if (session) session.turn = undefined
       await code.call('agents.conversations.archive', { channel_id: a.chat_id, summary_message_ts: a.summary_ts })
       // The session is ended below before its turn finishes, so endTurn never gets to clear "processing".
       code.close(a.chat_id)
