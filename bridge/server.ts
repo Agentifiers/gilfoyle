@@ -168,25 +168,29 @@ const MAIN = 'main'
 const sessions = new Map<string, Session>()
 
 /**
- * Queue a message for the agent: a <slack ...> header with the metadata, then the content.
+ * Put a message in a session's inbox: a <slack ...> header with the metadata, then the content.
  * With a target, the turn's tool calls show there as thinking steps.
  */
-function notify(content: string, meta: Record<string, string | undefined>, target?: steps.Target): void {
+function enqueue(session: Session, content: string, meta: Record<string, string | undefined>, target?: steps.Target): void {
   const clean = Object.entries({ received_at: new Date().toISOString(), ...meta }).filter(([, v]) => v !== undefined && v !== '')
   const attrs = clean.map(([k, v]) => `${k}=\"${String(v).replaceAll('"', '&quot;')}\"`).join(' ')
   log('inbound', { meta: Object.fromEntries(clean), content: content.slice(0, 500) })
-  const channel = meta.chat_id ?? ''
-  const key = code.isCode(channel) ? channel : MAIN
-  const session = sessions.get(key) ?? startSession(key)
-  if (!session) {
-    notify(`[BUSY] A message in code channel <#${channel}> is waiting: every world is in use. Tell them in that channel's origin thread or DM that it is queued.`, { chat_id: channel })
-    return
-  }
   session.inbox.push({
     message: { type: 'user', message: { role: 'user', content: `<slack ${attrs}>\n${content}\n</slack>` }, parent_tool_use_id: null },
     steps: target,
   })
   session.wake?.()
+}
+
+/** Queue a message for the agent: in its code channel's own session, or the main one. */
+function notify(content: string, meta: Record<string, string | undefined>, target?: steps.Target): void {
+  const channel = meta.chat_id ?? ''
+  if (!code.isCode(channel)) return enqueue(sessions.get(MAIN) ?? startSession(MAIN), content, meta, target)
+  const session = sessions.get(channel) ?? (liveCodeSessions() < config.worlds ? startSession(channel) : undefined)
+  if (session) return enqueue(session, content, meta, target)
+  // Every world is taken. The notice goes straight to the main session, which always starts:
+  // routed by its chat_id it would come back here. Nothing keeps the message for later.
+  enqueue(sessions.get(MAIN) ?? startSession(MAIN), `[BUSY] Every world is in use, so code channel <#${channel}> couldn't take this message. Tell them there that it wasn't picked up and to send it again once a world frees up.`, { chat_id: channel, thread_ts: meta.thread_ts })
 }
 
 const text = (t: string) => ({ content: [{ type: 'text' as const, text: t }] })
@@ -454,9 +458,8 @@ const historyDir = join(process.env.HOME ?? '', '.claude', 'projects')
 const hasHistory = (id: string) => existsSync(historyDir) && readdirSync(historyDir, { recursive: true }).some(f => String(f).endsWith(`${id}.jsonl`))
 const liveCodeSessions = () => [...sessions.keys()].filter(k => k !== MAIN).length
 
-/** Start (or resume) the session for `key`: MAIN, or a code channel ID. Returns undefined when every world is taken. */
-function startSession(key: string): Session | undefined {
-  if (key !== MAIN && liveCodeSessions() >= config.worlds) return undefined
+/** Start (or resume) the session for `key`: MAIN, or a code channel ID. Callers check that a world is free first. */
+function startSession(key: string): Session {
   const id = key === MAIN ? mainId : code.sessionId(key)!
   const resume = hasHistory(id)
   const session: Session = { inbox: [], query: undefined as unknown as Query }
